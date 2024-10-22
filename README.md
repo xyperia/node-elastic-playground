@@ -1,5 +1,7 @@
 # Elasticsearch to OpenAI Integration
 
+![demo-playground](https://github.com/user-attachments/assets/9412ab68-634e-417b-bef8-01d552685852)
+
 This Node.js application integrates Elasticsearch and OpenAI, allowing users to query an Elasticsearch index, retrieve results, and generate responses from OpenAI's GPT-3.5-turbo model. The OpenAI responses are streamed token-by-token for a real-time experience.
 
 ## Features
