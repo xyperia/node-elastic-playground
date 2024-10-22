@@ -19,8 +19,8 @@ This Node.js application integrates Elasticsearch and OpenAI, allowing users to 
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/your-username/your-repo-name.git
-    cd your-repo-name
+    git clone https://github.com/xyperia/node-elastic-playground.git
+    cd node-elastic-playground
     ```
 
 2. Install dependencies:
