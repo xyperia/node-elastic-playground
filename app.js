@@ -1,23 +1,23 @@
 require('dotenv').config();
+const express = require('express');
 const { Client } = require('@elastic/elasticsearch');
 const OpenAI = require('openai');
-const readline = require('readline');
+const cors = require('cors');
 
-// Initialize Elasticsearch client with the endpoint from .env
+// Initialize Elasticsearch client
 const esClient = new Client({
-  node: process.env.ES_ENDPOINT, // Load the Elasticsearch endpoint from the environment variables
-  auth: {
-    apiKey: process.env.ES_API_KEY
-  },
-  ssl: {
-    rejectUnauthorized: false // Allow self-signed certificates
-  }
+  node: process.env.ES_ENDPOINT,
+  auth: { apiKey: process.env.ES_API_KEY }
 });
 
-// Initialize OpenAI client (directly passing the API key)
+// Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
+const app = express();
+app.use(express.json());
+app.use(cors());
 
 const indexSourceFields = {
   'general-rules-pdf': ['content']
@@ -47,7 +47,7 @@ async function getElasticsearchResults(query) {
     return result.hits.hits;
   } catch (error) {
     console.error('Error fetching results from Elasticsearch:', error);
-    return [];  // Return an empty array if there's an error
+    return [];
   }
 }
 
@@ -56,7 +56,6 @@ function createOpenaiPrompt(results) {
   let context = '';
   for (const hit of results) {
     const innerHitPath = `${hit._index}.${indexSourceFields[hit._index][0]}`;
-    
     if (hit.inner_hits && hit.inner_hits[innerHitPath]) {
       context += hit.inner_hits[innerHitPath].hits.hits.map(innerHit => innerHit._source.text).join('\n --- \n');
     } else {
@@ -82,8 +81,8 @@ function createOpenaiPrompt(results) {
   return prompt;
 }
 
-// Generate OpenAI completion token by token
-async function generateOpenaiCompletion(userPrompt, question) {
+// Handle OpenAI token-by-token responses
+async function generateOpenaiCompletion(userPrompt, question, res) {
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
@@ -91,39 +90,38 @@ async function generateOpenaiCompletion(userPrompt, question) {
         { role: 'system', content: userPrompt },
         { role: 'user', content: question }
       ],
-      stream: true // Enable streaming response
+      stream: true
     });
 
-    // Handle streaming response
+    // Handle token streaming
     for await (const message of response) {
       if (message.choices[0]?.delta?.content) {
-        process.stdout.write(message.choices[0].delta.content);
+        res.write(message.choices[0].delta.content);
       }
     }
-    console.log(); // Ensure a new line after the response
+    res.end();  // Close the stream when the response is complete
   } catch (error) {
     console.error('Error generating OpenAI completion:', error);
+    res.status(500).send('Error generating response');
   }
 }
 
-// Create a function to handle the Q&A loop
-function askQuestion() {
-  rl.question('\nMasukan pertanyaan anda: ', async (question) => {
-    const elasticsearchResults = await getElasticsearchResults(question);
-    const contextPrompt = createOpenaiPrompt(elasticsearchResults);
-    
-    await generateOpenaiCompletion(contextPrompt, question);
+// API endpoint to handle chat requests
+app.post('/chat', async (req, res) => {
+  const { question } = req.body;
+  
+  // Fetch Elasticsearch results
+  const elasticsearchResults = await getElasticsearchResults(question);
+  
+  // Create OpenAI prompt
+  const contextPrompt = createOpenaiPrompt(elasticsearchResults);
 
-    // Prompt the user again after completion
-    askQuestion(); // Loop back to asking a new question
-  });
-}
-
-// Create a readline interface to get the user's question
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
+  // Stream response token-by-token
+  res.setHeader('Content-Type', 'text/plain');
+  await generateOpenaiCompletion(contextPrompt, question, res);
 });
 
-// Start the question loop
-askQuestion();
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
