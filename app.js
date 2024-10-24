@@ -96,7 +96,7 @@ async function generateOpenaiCompletion(userPrompt, question, res) {
     // Handle token streaming
     for await (const message of response) {
       if (message.choices[0]?.delta?.content) {
-        res.write(message.choices[0].delta.content);
+        res.write(`data: ${message.choices[0].delta.content}\n\n`); // SSE format
       }
     }
     res.end();  // Close the stream when the response is complete
@@ -106,7 +106,7 @@ async function generateOpenaiCompletion(userPrompt, question, res) {
   }
 }
 
-// API endpoint to handle chat requests
+// API endpoint to handle chat requests with Elasticsearch integration (POST)
 app.post('/chat', async (req, res) => {
   const { question } = req.body;
   
@@ -117,10 +117,32 @@ app.post('/chat', async (req, res) => {
   const contextPrompt = createOpenaiPrompt(elasticsearchResults);
 
   // Stream response token-by-token
-  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
   await generateOpenaiCompletion(contextPrompt, question, res);
 });
 
+// API endpoint to handle GET request (for use in front-end)
+app.get('/chat', async (req, res) => {
+  const question = req.query.question;
+  
+  // Fetch Elasticsearch results
+  const elasticsearchResults = await getElasticsearchResults(question);
+  
+  // Create OpenAI prompt
+  const contextPrompt = createOpenaiPrompt(elasticsearchResults);
+
+  // Stream response token-by-token
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  await generateOpenaiCompletion(contextPrompt, question, res);
+});
+
+// Start the server
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
